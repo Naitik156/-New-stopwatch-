@@ -196,7 +196,7 @@ async function onPlay() {
 async function initializeFaceDetection() {
     setStatus("Loading models...", "loading");
     try {
-        const modelPath = '/models'; // Path relative to index.html
+        const modelPath = 'models'; // Path relative to index.html
 
         await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
         await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
