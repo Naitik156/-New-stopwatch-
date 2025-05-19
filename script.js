@@ -80,15 +80,21 @@ async function onPlay() {
         .withFaceLandmarks();
 
     isPersonPresent = !!detections;
-    isStudying = isPersonPresent;
+
+    // ✅ Even if landmarks fail, use face box to consider "studying"
+    isStudying = !!(detections && detections.detection);
 
     const ctx = overlayCanvas.getContext('2d');
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-    if (detections) {
-        const resizedDetections = faceapi.resizeResults(detections, displaySize);
-        faceapi.draw.drawDetections(overlayCanvas, resizedDetections);
-        faceapi.draw.drawFaceLandmarks(overlayCanvas, resizedDetections);
+    if (detections && detections.detection) {
+        const resized = faceapi.resizeResults(detections, displaySize);
+        faceapi.draw.drawDetections(overlayCanvas, resized);
+
+        // ✅ Optional: Only draw landmarks if available
+        if (detections.landmarks) {
+            faceapi.draw.drawFaceLandmarks(overlayCanvas, resized);
+        }
     }
 
     if (isStudying) {
@@ -141,7 +147,7 @@ async function setupCamera() {
         videoInput.addEventListener('play', onPlay);
 
         videoInput.addEventListener('loadedmetadata', () => {
-            // ✅ Mobile fix: Wait until videoWidth is available
+            // ✅ MOBILE FIX: Wait for actual video size
             let checkReady = setInterval(() => {
                 if (videoInput.videoWidth && videoInput.videoHeight) {
                     clearInterval(checkReady);
@@ -170,7 +176,7 @@ async function setupCamera() {
     }
 }
 
-// ✅ Initial Reset and Start
+// ✅ Initial Reset
 elapsedTime = 0;
 startTime = 0;
 isRunning = false;
