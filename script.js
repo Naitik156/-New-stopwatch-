@@ -167,7 +167,7 @@ async function setupCamera() {
 }
 
 // Initialize everything
-initializeFaceDetection();
-updateStopwatchDisplay();
-pauseStopwatch();
 elapsedTime = 0;
+pauseStopwatch();
+updateStopwatchDisplay();
+initializeFaceDetection();
