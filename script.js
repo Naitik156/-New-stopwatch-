@@ -38,7 +38,7 @@ function startStopwatch() {
     }
 
     isRunning = true;
-    startTime = Date.now(); // Reset start time when resuming
+    startTime = Date.now();
     timerInterval = setInterval(updateStopwatchDisplay, 1000);
     console.log("Stopwatch resumed from:", formatTime(elapsedTime));
 }
@@ -80,7 +80,7 @@ async function onPlay() {
         .withFaceLandmarks();
 
     isPersonPresent = !!detections;
-    isStudying = isPersonPresent; // ✅ Face = studying
+    isStudying = isPersonPresent;
 
     const ctx = overlayCanvas.getContext('2d');
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -91,7 +91,6 @@ async function onPlay() {
         faceapi.draw.drawFaceLandmarks(overlayCanvas, resizedDetections);
     }
 
-    // Control stopwatch
     if (isStudying) {
         setStatus("Studying...", "studying");
         if (isPausedByDetection) {
@@ -142,16 +141,24 @@ async function setupCamera() {
         videoInput.addEventListener('play', onPlay);
 
         videoInput.addEventListener('loadedmetadata', () => {
-            const videoWidth = videoInput.videoWidth || 640;
-            const videoHeight = videoInput.videoHeight || 480;
-            videoInput.width = videoWidth;
-            videoInput.height = videoHeight;
+            // ✅ Mobile fix: Wait until videoWidth is available
+            let checkReady = setInterval(() => {
+                if (videoInput.videoWidth && videoInput.videoHeight) {
+                    clearInterval(checkReady);
 
-            container.style.width = `${videoWidth}px`;
-            videoInput.style.width = '100%';
-            overlayCanvas.style.width = '100%';
+                    const videoWidth = videoInput.videoWidth;
+                    const videoHeight = videoInput.videoHeight;
 
-            setStatus("Camera Ready", "ready");
+                    videoInput.width = videoWidth;
+                    videoInput.height = videoHeight;
+
+                    container.style.width = `${videoWidth}px`;
+                    videoInput.style.width = '100%';
+                    overlayCanvas.style.width = '100%';
+
+                    setStatus("Camera Ready", "ready");
+                }
+            }, 100); // check every 100ms
         });
     } catch (error) {
         console.error("Camera access error:", error);
@@ -163,7 +170,7 @@ async function setupCamera() {
     }
 }
 
-// ✅ Initial Setup
+// ✅ Initial Reset and Start
 elapsedTime = 0;
 startTime = 0;
 isRunning = false;
