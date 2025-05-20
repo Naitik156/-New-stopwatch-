@@ -1,50 +1,115 @@
 const videoInput = document.getElementById('videoInput');
-const overlayCanvas = document.getElementById('overlay');
-const statusText = document.getElementById('status');
-const timerDisplay = document.getElementById('timer');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const stopwatchDisplay = document.getElementById('stopwatch-display');
+const statusIndicator = document.getElementById('status-indicator');
 const container = document.querySelector('.container');
 
 let faceDetectionInitialized = false;
+let mediaStream = null;
+
+let startTime = 0;
+let elapsedTime = 0;
+let timerInterval = null;
+let isRunning = false;
+let isPausedByDetection = true;
+
+let isPersonPresent = false;
 let isStudying = false;
-let elapsedSeconds = 0;
-let intervalId = null;
 
-function setStatus(message, type) {
-    statusText.textContent = message;
-    statusText.className = '';
-    if (type) statusText.classList.add(type);
+function formatTime(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-function formatTime(seconds) {
-    const hrs = String(Math.floor(seconds / 3600)).padStart(2, '0');
-    const mins = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
-    const secs = String(seconds % 60).padStart(2, '0');
-    return `${hrs}:${mins}:${secs}`;
+function updateStopwatchDisplay() {
+    const currentTime = Date.now();
+    const totalElapsed = elapsedTime + (isRunning ? (currentTime - startTime) : 0);
+    stopwatchDisplay.textContent = formatTime(totalElapsed);
 }
 
-function startTimer() {
-    if (!intervalId) {
-        intervalId = setInterval(() => {
-            elapsedSeconds++;
-            timerDisplay.textContent = formatTime(elapsedSeconds);
-        }, 1000);
+function startStopwatch() {
+    if (isRunning) return;
+
+    if (isNaN(elapsedTime) || elapsedTime < 0 || elapsedTime > 1e9 * 60) {
+        elapsedTime = 0;
     }
+
+    isRunning = true;
+    startTime = Date.now();
+    timerInterval = setInterval(updateStopwatchDisplay, 1000);
+    console.log("Stopwatch resumed from:", formatTime(elapsedTime));
 }
 
-function stopTimer() {
-    clearInterval(intervalId);
-    intervalId = null;
+function pauseStopwatch() {
+    if (!isRunning) return;
+
+    isRunning = false;
+    clearInterval(timerInterval);
+    elapsedTime += Date.now() - startTime;
+    startTime = 0;
+    console.log("Stopwatch paused at:", formatTime(elapsedTime));
 }
 
-function updateStudyState(studying) {
-    if (studying && !isStudying) {
-        startTimer();
+function setStatus(text, className) {
+    statusIndicator.textContent = text;
+    statusIndicator.className = 'status-indicator ' + className;
+}
+
+async function onPlay() {
+    if (!faceDetectionInitialized) {
+        requestAnimationFrame(onPlay);
+        return;
+    }
+
+    if (videoInput.paused || videoInput.ended) {
+        setStatus("Video Paused/Ended", "paused");
+        isPersonPresent = false;
+        isStudying = false;
+        requestAnimationFrame(onPlay);
+        return;
+    }
+
+    const displaySize = { width: videoInput.width, height: videoInput.height };
+    faceapi.matchDimensions(overlayCanvas, displaySize);
+
+    const detections = await faceapi
+        .detectSingleFace(videoInput, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks();
+
+    const faceBox = detections?.alignedRect || detections?.detection;
+    isPersonPresent = !!faceBox;
+    isStudying = !!faceBox;
+
+    const ctx = overlayCanvas.getContext('2d');
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    if (faceBox) {
+        const resized = faceapi.resizeResults(detections, displaySize);
+        faceapi.draw.drawDetections(overlayCanvas, resized);
+
+        if (detections.landmarks) {
+            faceapi.draw.drawFaceLandmarks(overlayCanvas, resized);
+        }
+    }
+
+    if (isStudying) {
         setStatus("Studying...", "studying");
-    } else if (!studying && isStudying) {
-        stopTimer();
-        setStatus("Not detected", "not-studying");
+        if (isPausedByDetection) {
+            startStopwatch();
+            isPausedByDetection = false;
+        }
+    } else {
+        setStatus("Not Studying", "distracted");
+        if (isRunning) {
+            pauseStopwatch();
+            isPausedByDetection = true;
+        }
     }
-    isStudying = studying;
+
+    requestAnimationFrame(onPlay);
 }
 
 async function initializeFaceDetection() {
@@ -52,7 +117,6 @@ async function initializeFaceDetection() {
     try {
         const modelPath = 'models';
 
-        // ✅ Load both tiny face detector and landmark model
         await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
         await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
 
@@ -66,61 +130,53 @@ async function initializeFaceDetection() {
 }
 
 async function setupCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Camera not supported", "camera-error");
+        return;
+    }
+
+    setStatus("Requesting camera access...", "loading");
+
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        mediaStream = stream;
         videoInput.srcObject = stream;
+
+        videoInput.addEventListener('play', onPlay);
+
+        videoInput.addEventListener('loadedmetadata', () => {
+            let checkReady = setInterval(() => {
+                if (videoInput.videoWidth && videoInput.videoHeight) {
+                    clearInterval(checkReady);
+
+                    const videoWidth = videoInput.videoWidth;
+                    const videoHeight = videoInput.videoHeight;
+
+                    videoInput.width = videoWidth;
+                    videoInput.height = videoHeight;
+
+                    container.style.width = `${videoWidth}px`;
+                    videoInput.style.width = '100%';
+                    overlayCanvas.style.width = '100%';
+
+                    setStatus("Camera Ready", "ready");
+                }
+            }, 100);
+        });
     } catch (error) {
         console.error("Camera access error:", error);
-        setStatus("Camera access denied", "camera-error");
+        setStatus("Camera error", "camera-error");
+        if (isRunning) {
+            pauseStopwatch();
+            isPausedByDetection = true;
+        }
     }
 }
 
-videoInput.addEventListener('loadedmetadata', () => {
-    // ✅ Wait until video has actual size (fix for phones)
-    let checkReady = setInterval(() => {
-        if (videoInput.videoWidth && videoInput.videoHeight) {
-            clearInterval(checkReady);
-
-            const videoWidth = videoInput.videoWidth;
-            const videoHeight = videoInput.videoHeight;
-
-            videoInput.width = videoWidth;
-            videoInput.height = videoHeight;
-
-            container.style.width = `${videoWidth}px`;
-            videoInput.style.width = '100%';
-            overlayCanvas.style.width = '100%';
-
-            setStatus("Camera Ready", "ready");
-            startDetectionLoop();
-        }
-    }, 100);
-});
-
-async function startDetectionLoop() {
-    const displaySize = { width: videoInput.videoWidth, height: videoInput.videoHeight };
-    faceapi.matchDimensions(overlayCanvas, displaySize);
-
-    setInterval(async () => {
-        if (!faceDetectionInitialized) return;
-
-        const detection = await faceapi
-            .detectSingleFace(videoInput, new faceapi.TinyFaceDetectorOptions())
-            .withFaceLandmarks();
-
-        const ctx = overlayCanvas.getContext('2d');
-        ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-        if (detection) {
-            const resizedDetections = faceapi.resizeResults(detection, displaySize);
-            faceapi.draw.drawDetections(overlayCanvas, resizedDetections);
-            // faceapi.draw.drawFaceLandmarks(overlayCanvas, resizedDetections);
-            updateStudyState(true);
-        } else {
-            updateStudyState(false);
-        }
-    }, 1000);
-}
-
-// Start everything
+// 🔄 Initial Setup
+elapsedTime = 0;
+startTime = 0;
+isRunning = false;
+isPausedByDetection = true;
+updateStopwatchDisplay();
 initializeFaceDetection();
