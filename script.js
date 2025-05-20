@@ -79,19 +79,17 @@ async function onPlay() {
         .detectSingleFace(videoInput, new faceapi.TinyFaceDetectorOptions())
         .withFaceLandmarks();
 
-    isPersonPresent = !!detections;
-
-    // ✅ Even if landmarks fail, use face box to consider "studying"
-    isStudying = !!(detections && detections.detection);
+    const faceBox = detections?.alignedRect || detections?.detection;
+    isPersonPresent = !!faceBox;
+    isStudying = !!faceBox;
 
     const ctx = overlayCanvas.getContext('2d');
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-    if (detections && detections.detection) {
+    if (faceBox) {
         const resized = faceapi.resizeResults(detections, displaySize);
         faceapi.draw.drawDetections(overlayCanvas, resized);
 
-        // ✅ Optional: Only draw landmarks if available
         if (detections.landmarks) {
             faceapi.draw.drawFaceLandmarks(overlayCanvas, resized);
         }
@@ -147,7 +145,6 @@ async function setupCamera() {
         videoInput.addEventListener('play', onPlay);
 
         videoInput.addEventListener('loadedmetadata', () => {
-            // ✅ MOBILE FIX: Wait for actual video size
             let checkReady = setInterval(() => {
                 if (videoInput.videoWidth && videoInput.videoHeight) {
                     clearInterval(checkReady);
@@ -164,7 +161,7 @@ async function setupCamera() {
 
                     setStatus("Camera Ready", "ready");
                 }
-            }, 100); // check every 100ms
+            }, 100);
         });
     } catch (error) {
         console.error("Camera access error:", error);
@@ -176,7 +173,7 @@ async function setupCamera() {
     }
 }
 
-// ✅ Initial Reset
+// 🔄 Initial Setup
 elapsedTime = 0;
 startTime = 0;
 isRunning = false;
