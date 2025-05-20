@@ -1,98 +1,63 @@
 const videoInput = document.getElementById('videoInput');
-const overlayCanvas = document.getElementById('overlay');
-const timerDisplay = document.getElementById('timer');
-const statusText = document.getElementById('statusText');
-const container = document.querySelector('.stopwatch-container');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const stopwatchDisplay = document.getElementById('stopwatch-display');
+const statusIndicator = document.getElementById('status-indicator');
+const container = document.querySelector('.container');
 
-let isRunning = false;
-let isPausedByDetection = false;
-let isPersonPresent = false;
-let isStudying = false;
+let faceDetectionInitialized = false;
+let mediaStream = null;
+
 let startTime = 0;
 let elapsedTime = 0;
-let stopwatchInterval = null;
-let faceDetectionInitialized = false;
+let timerInterval = null;
+let isRunning = false;
+let isPausedByDetection = true;
 
-// Camera setup
-async function setupCamera() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        videoInput.srcObject = stream;
+let isPersonPresent = false;
+let isStudying = false;
 
-        videoInput.addEventListener('loadedmetadata', () => {
-            let checkReady = setInterval(() => {
-                if (videoInput.videoWidth && videoInput.videoHeight) {
-                    clearInterval(checkReady);
-
-                    const videoWidth = videoInput.videoWidth;
-                    const videoHeight = videoInput.videoHeight;
-
-                    videoInput.width = videoWidth;
-                    videoInput.height = videoHeight;
-
-                    container.style.width = `${videoWidth}px`;
-                    videoInput.style.width = '100%';
-                    overlayCanvas.style.width = '100%';
-
-                    setStatus("Camera Ready", "ready");
-                }
-            }, 100);
-        });
-    } catch (error) {
-        setStatus("Camera Access Denied", "error");
-        console.error("Camera Error:", error);
-    }
+function formatTime(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-// Load models
-async function initializeFaceDetection() {
-    try {
-        const MODEL_URL = './models';
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        faceDetectionInitialized = true;
-    } catch (error) {
-        setStatus("Error loading models!", "error");
-        console.error("Model Load Error:", error);
-    }
+function updateStopwatchDisplay() {
+    const currentTime = Date.now();
+    const totalElapsed = elapsedTime + (isRunning ? (currentTime - startTime) : 0);
+    stopwatchDisplay.textContent = formatTime(totalElapsed);
 }
 
-// Draw status
-function setStatus(text, type) {
-    statusText.textContent = text;
-    statusText.style.color =
-        type === "ready" ? "green" :
-        type === "studying" ? "green" :
-        type === "distracted" ? "red" : "orange";
-}
-
-// Stopwatch logic
 function startStopwatch() {
-    if (!isRunning) {
-        startTime = Date.now() - elapsedTime;
-        stopwatchInterval = setInterval(updateDisplay, 1000);
-        isRunning = true;
+    if (isRunning) return;
+
+    if (isNaN(elapsedTime) || elapsedTime < 0 || elapsedTime > 1e9 * 60) {
+        elapsedTime = 0;
     }
+
+    isRunning = true;
+    startTime = Date.now();
+    timerInterval = setInterval(updateStopwatchDisplay, 1000);
+    console.log("Stopwatch resumed from:", formatTime(elapsedTime));
 }
 
 function pauseStopwatch() {
-    if (isRunning) {
-        clearInterval(stopwatchInterval);
-        elapsedTime = Date.now() - startTime;
-        isRunning = false;
-    }
+    if (!isRunning) return;
+
+    isRunning = false;
+    clearInterval(timerInterval);
+    elapsedTime += Date.now() - startTime;
+    startTime = 0;
+    console.log("Stopwatch paused at:", formatTime(elapsedTime));
 }
 
-function updateDisplay() {
-    const time = Date.now() - startTime;
-    const totalSeconds = Math.floor(time / 1000);
-    const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
-    const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
-    const seconds = String(totalSeconds % 60).padStart(2, '0');
-    timerDisplay.textContent = `${hours}:${minutes}:${seconds}`;
+function setStatus(text, className) {
+    statusIndicator.textContent = text;
+    statusIndicator.className = 'status-indicator ' + className;
 }
 
-// Face detection loop
 async function onPlay() {
     if (!faceDetectionInitialized) {
         requestAnimationFrame(onPlay);
@@ -110,26 +75,9 @@ async function onPlay() {
     const displaySize = { width: videoInput.width, height: videoInput.height };
     faceapi.matchDimensions(overlayCanvas, displaySize);
 
-    let detections = null;
-
-    // Try full detection
-    try {
-        detections = await faceapi
-            .detectSingleFace(videoInput, new faceapi.TinyFaceDetectorOptions())
-            .withFaceLandmarks();
-    } catch (e) {
-        detections = null;
-    }
-
-    // If failed, fallback
-    if (!detections) {
-        try {
-            detections = await faceapi
-                .detectSingleFace(videoInput, new faceapi.TinyFaceDetectorOptions());
-        } catch (e) {
-            detections = null;
-        }
-    }
+    const detections = await faceapi
+        .detectSingleFace(videoInput, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks();
 
     const faceBox = detections?.alignedRect || detections?.detection;
     isPersonPresent = !!faceBox;
@@ -141,6 +89,7 @@ async function onPlay() {
     if (faceBox) {
         const resized = faceapi.resizeResults(detections, displaySize);
         faceapi.draw.drawDetections(overlayCanvas, resized);
+
         if (detections.landmarks) {
             faceapi.draw.drawFaceLandmarks(overlayCanvas, resized);
         }
@@ -163,16 +112,71 @@ async function onPlay() {
     requestAnimationFrame(onPlay);
 }
 
-// Init everything
-async function init() {
-    await setupCamera();
-    await initializeFaceDetection();
+async function initializeFaceDetection() {
+    setStatus("Loading models...", "loading");
+    try {
+        const modelPath = 'models';
 
-    videoInput.addEventListener('play', () => {
-        overlayCanvas.width = videoInput.width;
-        overlayCanvas.height = videoInput.height;
-        onPlay();
-    });
+        await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
+
+        faceDetectionInitialized = true;
+        setStatus("Ready. Grant camera access.", "ready");
+        await setupCamera();
+    } catch (error) {
+        console.error("Model loading error:", error);
+        setStatus("Error loading models!", "camera-error");
+    }
 }
 
-init();
+async function setupCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Camera not supported", "camera-error");
+        return;
+    }
+
+    setStatus("Requesting camera access...", "loading");
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        mediaStream = stream;
+        videoInput.srcObject = stream;
+
+        videoInput.addEventListener('play', onPlay);
+
+        videoInput.addEventListener('loadedmetadata', () => {
+            let checkReady = setInterval(() => {
+                if (videoInput.videoWidth && videoInput.videoHeight) {
+                    clearInterval(checkReady);
+
+                    const videoWidth = videoInput.videoWidth;
+                    const videoHeight = videoInput.videoHeight;
+
+                    videoInput.width = videoWidth;
+                    videoInput.height = videoHeight;
+
+                    container.style.width = `${videoWidth}px`;
+                    videoInput.style.width = '100%';
+                    overlayCanvas.style.width = '100%';
+
+                    setStatus("Camera Ready", "ready");
+                }
+            }, 100);
+        });
+    } catch (error) {
+        console.error("Camera access error:", error);
+        setStatus("Camera error", "camera-error");
+        if (isRunning) {
+            pauseStopwatch();
+            isPausedByDetection = true;
+        }
+    }
+}
+
+// 🔄 Initial Setup
+elapsedTime = 0;
+startTime = 0;
+isRunning = false;
+isPausedByDetection = true;
+updateStopwatchDisplay();
+initializeFaceDetection();
