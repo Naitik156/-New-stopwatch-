@@ -76,23 +76,18 @@ async function onPlay() {
     faceapi.matchDimensions(overlayCanvas, displaySize);
 
     const detections = await faceapi
-        .detectSingleFace(videoInput, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks();
+        .detectSingleFace(videoInput, new faceapi.TinyFaceDetectorOptions());
 
-    const faceBox = detections?.alignedRect || detections?.detection;
-    isPersonPresent = !!faceBox;
-    isStudying = !!faceBox;
+    isPersonPresent = !!detections;
+    isStudying = isPersonPresent;
 
     const ctx = overlayCanvas.getContext('2d');
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-    if (faceBox) {
-        const resized = faceapi.resizeResults(detections, displaySize);
-        faceapi.draw.drawDetections(overlayCanvas, resized);
-
-        if (detections.landmarks) {
-            faceapi.draw.drawFaceLandmarks(overlayCanvas, resized);
-        }
+    if (detections) {
+        const resizedDetections = faceapi.resizeResults(detections, displaySize);
+        faceapi.draw.drawDetections(overlayCanvas, resizedDetections);
+        // faceapi.draw.drawFaceLandmarks(overlayCanvas, resizedDetections); // Not needed
     }
 
     if (isStudying) {
@@ -118,8 +113,6 @@ async function initializeFaceDetection() {
         const modelPath = 'models';
 
         await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
-
         faceDetectionInitialized = true;
         setStatus("Ready. Grant camera access.", "ready");
         await setupCamera();
@@ -145,6 +138,7 @@ async function setupCamera() {
         videoInput.addEventListener('play', onPlay);
 
         videoInput.addEventListener('loadedmetadata', () => {
+            // ✅ MOBILE FIX: Wait for actual video size
             let checkReady = setInterval(() => {
                 if (videoInput.videoWidth && videoInput.videoHeight) {
                     clearInterval(checkReady);
@@ -161,7 +155,7 @@ async function setupCamera() {
 
                     setStatus("Camera Ready", "ready");
                 }
-            }, 100);
+            }, 100); // check every 100ms
         });
     } catch (error) {
         console.error("Camera access error:", error);
@@ -173,7 +167,7 @@ async function setupCamera() {
     }
 }
 
-// 🔄 Initial Setup
+// ✅ Initial Reset
 elapsedTime = 0;
 startTime = 0;
 isRunning = false;
